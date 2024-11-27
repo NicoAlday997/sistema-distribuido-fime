@@ -54,8 +54,10 @@ public class TCPServer {
             }
         } catch (EOFException e) {
             System.err.println("El cliente cerró la conexión: " + clientSocket.getInetAddress().getHostAddress());
+            removerCliente(clientSocket.getInetAddress().getHostAddress());
         } catch (IOException | ClassNotFoundException e) {
             System.err.println("Error al procesar datos del cliente: " + e.getMessage());
+            removerCliente(clientSocket.getInetAddress().getHostAddress());
         } finally {
             try {
                 clientSocket.close();
@@ -65,12 +67,27 @@ public class TCPServer {
         }
     }
 
+    private static void removerCliente(String clientIp) {
+        synchronized (clients) {
+            clients.removeIf(client -> client.getIp().equals(clientIp));
+            updateTable(); // Actualizar la tabla en la interfaz
+        }
+        System.out.println("Cliente eliminado: " + clientIp);
+    }
+
 
     private static void createGUI() {
         JFrame frame = new JFrame("Servidor TCP - Lista de Clientes");
         frame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
 
-        tableModel = new DefaultTableModel(new String[]{"IP", "Nombre", "CPU", "RAM", "Disco"}, 0);
+       // tableModel = new DefaultTableModel(new String[]{"IP", "Nombre", "CPU", "RAM", "Disco"}, 0);
+        tableModel = new DefaultTableModel(
+                new String[]{
+                        "IP", "Nombre", "Modelo Procesador", "Velocidad Procesador",
+                        "Núcleos", "Capacidad Disco", "Versión OS", "CPU (%)",
+                        "Memoria Libre", "Ancho de Banda (%)", "Disco Libre", "Estado"
+                }, 0);
+
         JTable table = new JTable(tableModel);
         JScrollPane scrollPane = new JScrollPane(table);
 
@@ -86,35 +103,171 @@ public class TCPServer {
                 tableModel.addRow(new Object[]{
                         client.getIp(),
                         client.getName(),
-                        client.getCpu(),
-                        client.getRam(),
-                        client.getDisk()
+                        client.getProcessorModel(),
+                        client.getProcessorSpeed(),
+                        client.getProcessorCores(),
+                        client.getDiskCapacity(),
+                        client.getOsVersion(),
+                        client.getCpuUsage(),
+                        client.getMemoryFree(),
+                        client.getBandwidthFree(),
+                        client.getDiskFree(),
+                        client.getConnectionStatus()
                 });
             }
         });
     }
 
+
     public static class ClientInfo implements Serializable {
         private static final long serialVersionUID = 1L;
-        private String ip, name, cpu, ram, disk;
 
-        public ClientInfo(String ip, String name, String cpu, String ram, String disk) {
+        // Monitoreo Estático
+        private String ip;
+        private String name; // Nombre del equipo
+        private String processorModel;
+        private String processorSpeed;
+        private String processorCores;
+        private String diskCapacity;
+        private String osVersion;
+
+        // Monitoreo Dinámico
+        private String cpuUsage;
+        private String memoryFree;
+        private String bandwidthFree;
+        private String diskFree;
+        private String connectionStatus; // Conectado/Desconectado
+
+        public ClientInfo(String ip, String name, String processorModel, String processorSpeed, String processorCores,
+                          String diskCapacity, String osVersion, String cpuUsage, String memoryFree,
+                          String bandwidthFree, String diskFree, String connectionStatus) {
             this.ip = ip;
             this.name = name;
-            this.cpu = cpu;
-            this.ram = ram;
-            this.disk = disk;
+            this.processorModel = processorModel;
+            this.processorSpeed = processorSpeed;
+            this.processorCores = processorCores;
+            this.diskCapacity = diskCapacity;
+            this.osVersion = osVersion;
+            this.cpuUsage = cpuUsage;
+            this.memoryFree = memoryFree;
+            this.bandwidthFree = bandwidthFree;
+            this.diskFree = diskFree;
+            this.connectionStatus = connectionStatus;
         }
 
-        public String getIp() { return ip; }
-        public String getName() { return name; }
-        public String getCpu() { return cpu; }
-        public String getRam() { return ram; }
-        public String getDisk() { return disk; }
+        public String getIp() {
+            return ip;
+        }
+
+        public void setIp(String ip) {
+            this.ip = ip;
+        }
+
+        public String getName() {
+            return name;
+        }
+
+        public void setName(String name) {
+            this.name = name;
+        }
+
+        public String getProcessorModel() {
+            return processorModel;
+        }
+
+        public void setProcessorModel(String processorModel) {
+            this.processorModel = processorModel;
+        }
+
+        public String getProcessorSpeed() {
+            return processorSpeed;
+        }
+
+        public void setProcessorSpeed(String processorSpeed) {
+            this.processorSpeed = processorSpeed;
+        }
+
+        public String getProcessorCores() {
+            return processorCores;
+        }
+
+        public void setProcessorCores(String processorCores) {
+            this.processorCores = processorCores;
+        }
+
+        public String getDiskCapacity() {
+            return diskCapacity;
+        }
+
+        public void setDiskCapacity(String diskCapacity) {
+            this.diskCapacity = diskCapacity;
+        }
+
+        public String getOsVersion() {
+            return osVersion;
+        }
+
+        public void setOsVersion(String osVersion) {
+            this.osVersion = osVersion;
+        }
+
+        public String getCpuUsage() {
+            return cpuUsage;
+        }
+
+        public void setCpuUsage(String cpuUsage) {
+            this.cpuUsage = cpuUsage;
+        }
+
+        public String getMemoryFree() {
+            return memoryFree;
+        }
+
+        public void setMemoryFree(String memoryFree) {
+            this.memoryFree = memoryFree;
+        }
+
+        public String getBandwidthFree() {
+            return bandwidthFree;
+        }
+
+        public void setBandwidthFree(String bandwidthFree) {
+            this.bandwidthFree = bandwidthFree;
+        }
+
+        public String getDiskFree() {
+            return diskFree;
+        }
+
+        public void setDiskFree(String diskFree) {
+            this.diskFree = diskFree;
+        }
+
+        public String getConnectionStatus() {
+            return connectionStatus;
+        }
+
+        public void setConnectionStatus(String connectionStatus) {
+            this.connectionStatus = connectionStatus;
+        }
 
         @Override
         public String toString() {
-            return String.format("IP: %s, Nombre: %s, CPU: %s, RAM: %s, Disco: %s", ip, name, cpu, ram, disk);
+            return "ClientInfo{" +
+                    "ip='" + ip + '\'' +
+                    ", name='" + name + '\'' +
+                    ", processorModel='" + processorModel + '\'' +
+                    ", processorSpeed='" + processorSpeed + '\'' +
+                    ", processorCores=" + processorCores +
+                    ", diskCapacity='" + diskCapacity + '\'' +
+                    ", osVersion='" + osVersion + '\'' +
+                    ", cpuUsage='" + cpuUsage + '\'' +
+                    ", memoryFree='" + memoryFree + '\'' +
+                    ", bandwidthFree='" + bandwidthFree + '\'' +
+                    ", diskFree='" + diskFree + '\'' +
+                    ", connectionStatus='" + connectionStatus + '\'' +
+                    '}';
         }
     }
+
 }

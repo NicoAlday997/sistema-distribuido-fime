@@ -10,10 +10,13 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="2facc42a-83eb-43c8-9414-7e10626354f8" name="Changes" comment="">
-      <change beforePath="$PROJECT_DIR$/.gitignore" beforeDir="false" afterPath="$PROJECT_DIR$/.gitignore" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/.idea/misc.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/misc.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/out/artifacts/servidor_jar/servidor.jar" beforeDir="false" afterPath="$PROJECT_DIR$/out/artifacts/servidor_jar/servidor.jar" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/main/java/com/sistemadistribuido/client/ClientInterface.java" beforeDir="false" afterPath="$PROJECT_DIR$/src/main/java/com/sistemadistribuido/client/ClientInterface.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/main/java/com/sistemadistribuido/client/ServerChangeListener.java" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/main/java/com/sistemadistribuido/client/SimpleClient.java" beforeDir="false" afterPath="$PROJECT_DIR$/src/main/java/com/sistemadistribuido/client/SimpleClient.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/main/java/com/sistemadistribuido/server/TCPServer.java" beforeDir="false" afterPath="$PROJECT_DIR$/src/main/java/com/sistemadistribuido/server/TCPServer.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/main/java/com/sistemadistribuido/server/UDPServerBroadcaster.java" beforeDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -53,7 +56,7 @@
     "RunOnceActivity.OpenProjectViewOnStart": "true",
     "RunOnceActivity.ShowReadmeOnStart": "true",
     "SHARE_PROJECT_CONFIGURATION_FILES": "true",
-    "git-widget-placeholder": "master",
+    "git-widget-placeholder": "pruebas-eliminando",
     "jdk.selected.JAVA_MODULE": "17",
     "kotlin-language-version-configured": "true",
     "last_opened_file_path": "C:/Users/alday/Documents/MigracionToSpring/sistema-distribuido/pom.xml",
@@ -68,14 +71,7 @@
     "vue.rearranger.settings.migration": "true"
   }
 }]]></component>
-  <component name="RunManager" selected="Application.simple_client">
-    <configuration name="server" type="Application" factoryName="Application">
-      <option name="MAIN_CLASS_NAME" value="com.sistemadistribuido.server.UDPServerBroadcaster" />
-      <module name="servidor" />
-      <method v="2">
-        <option name="Make" enabled="true" />
-      </method>
-    </configuration>
+  <component name="RunManager" selected="Application.tcp_server">
     <configuration name="simple_client" type="Application" factoryName="Application">
       <option name="MAIN_CLASS_NAME" value="com.sistemadistribuido.client.SimpleClient" />
       <module name="servidor" />
@@ -91,7 +87,6 @@
       </method>
     </configuration>
     <list>
-      <item itemvalue="Application.server" />
       <item itemvalue="Application.tcp_server" />
       <item itemvalue="Application.simple_client" />
     </list>
@@ -115,7 +110,7 @@
       <workItem from="1732726639430" duration="250000" />
       <workItem from="1732726917448" duration="196000" />
       <workItem from="1732727124201" duration="1216000" />
-      <workItem from="1732728966762" duration="529000" />
+      <workItem from="1732728966762" duration="12671000" />
     </task>
     <servers />
   </component>

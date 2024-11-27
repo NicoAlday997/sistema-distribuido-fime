@@ -24,16 +24,39 @@ public class SimpleClient {
     private static Socket socket;
     private static ObjectOutputStream oos;
 
+    private static String serverIP;
+
     // Sistema y hardware
     private static final SystemInfo si = new SystemInfo();
     private static final CentralProcessor processor = si.getHardware().getProcessor();
     private static final GlobalMemory memory = si.getHardware().getMemory();
 
+    private static String getProcessorModel() {
+        return processor.getProcessorIdentifier().getName();
+    }
+    private static String getProcessorSpeed() {
+        return String.format("%.2f GHz", processor.getMaxFreq() / 1_000_000_000.0);
+    }
+    private static int getProcessorCores() {
+        return processor.getLogicalProcessorCount();
+    }
+    private static String getDiskCapacity() {
+        long totalDiskCapacity = 0;
+        for (File root : File.listRoots()) {
+            totalDiskCapacity += root.getTotalSpace();
+        }
+        return String.format("%.2f GB", totalDiskCapacity / (1024.0 * 1024 * 1024));
+    }
+    private static String getOSVersion() {
+        return si.getOperatingSystem().toString();
+    }
+
+
     // Executor para actualización automática
-    private static final ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(1);
+    private static  ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(1);
 
     public static void main(String[] args) {
-        String serverIP = UDPClientListener.discoverServer();
+        serverIP = UDPClientListener.discoverServer();
         if (serverIP == null) {
             System.err.println("No se pudo detectar el servidor.");
             return;
@@ -52,6 +75,17 @@ public class SimpleClient {
         connectToServer(serverIP);
     }
 
+    private static void cerrarSocketAnterior() {
+        try {
+            if (socket != null && !socket.isClosed()) {
+                socket.close();
+            }
+        } catch (IOException e) {
+            System.err.println("Error al cerrar el socket previo: " + e.getMessage());
+        }
+    }
+
+
     private static void connectToServer(String serverIP) {
         if (isConnected) {
             System.out.println("Ya conectado al servidor: " + serverIP);
@@ -62,59 +96,43 @@ public class SimpleClient {
             socket = new Socket(serverIP, 5000);
             oos = new ObjectOutputStream(socket.getOutputStream());
             isConnected = true;
+            clientInterface.actualizarEstadoConexion("Conectado");
 
-            // Programar actualización automática
-            scheduler.scheduleAtFixedRate(() -> {
-                try {
-                    if (isConnected && !socket.isClosed() && oos != null) {
-                        // Obtener los datos
-                        String cpuUsage = getCpuUsage();
-                        String memoryFree = getMemoryFree();
-                        String diskFree = getDiskFree();
-                        String bandwidthFree = getBandwidthFree();
-
-                        // Crear y enviar el objeto ClientInfo
-                        TCPServer.ClientInfo clientInfo = new TCPServer.ClientInfo(
-                                InetAddress.getLocalHost().getHostAddress(),
-                                InetAddress.getLocalHost().getHostName(),
-                                cpuUsage,
-                                memoryFree,
-                                diskFree
-                        );
-
-                        System.out.println("Enviando datos al servidor: " + clientInfo);
-
-                        // Enviar al servidor
-                        oos.writeObject(clientInfo);
-                        oos.flush();
-
-                        // Actualizar la interfaz del cliente
-                        actualizarInterfaz(new String[]{cpuUsage, memoryFree, bandwidthFree, diskFree});
-                    }
-                } catch (SocketException e) {
-                    System.err.println("Error al escribir en el socket: " + e.getMessage());
-                    disconnect();
-                } catch (IOException e) {
-                    e.printStackTrace();
-                }
-            }, 0, 3, TimeUnit.SECONDS);
-
-
+            // Iniciar el envío de datos
+            reiniciarEnvioDatos();
         } catch (IOException e) {
             System.err.println("Error al conectar con el servidor: " + e.getMessage());
+            clientInterface.actualizarEstadoConexion("Desconectado. Intentando reconectar...");
+            reconnect();
         }
     }
 
-    private static void actualizarInterfaz(String[] componentsData) {
+
+    private static void actualizarInterfaz(String[] componentsData, String[] staticData) {
         if (clientInterface != null) {
-            clientInterface.actualizarDatos(
+            // Actualizar datos dinámicos
+            clientInterface.actualizarDatosDinamicos(
                     componentsData[0], // CPU Usage
                     componentsData[1], // Memory Free
                     componentsData[2], // Bandwidth Free
-                    componentsData[3]  // Disk Free
+                    componentsData[3], // Disk Free
+                    staticData[0]      // Client IP
+            );
+
+            // Actualizar datos estáticos
+            clientInterface.actualizarDatosEstaticos(
+                    staticData[1], // Nombre de equipo
+                    staticData[2], // Processor Model
+                    staticData[3], // Processor Speed
+                    staticData[4], // Processor Cores
+                    staticData[5], // Disk Capacity
+                    staticData[6] // OS Version
+
+
             );
         }
     }
+
 
     private static String getCpuUsage() {
         double usage = processor.getSystemCpuLoadBetweenTicks(processor.getSystemCpuLoadTicks()) * 100;
@@ -141,7 +159,7 @@ public class SimpleClient {
 
     public static void disconnect() {
         isConnected = false;
-        scheduler.shutdown();
+        scheduler.shutdownNow(); // Detener el scheduler
         try {
             if (oos != null) oos.close();
             if (socket != null) socket.close();
@@ -150,4 +168,85 @@ public class SimpleClient {
             System.err.println("Error al cerrar la conexión: " + e.getMessage());
         }
     }
+
+
+
+    private static void reconnect() {
+        isConnected = false;
+        clientInterface.actualizarEstadoConexion("Intentando reconectar...");
+        cerrarSocketAnterior(); // Asegurarse de que no haya sockets previos abiertos
+        while (!isConnected) {
+            try {
+                socket = new Socket(serverIP, 5000);
+                oos = new ObjectOutputStream(socket.getOutputStream());
+                isConnected = true;
+                clientInterface.actualizarEstadoConexion("Conectado");
+
+                // Reiniciar el envío de datos
+                reiniciarEnvioDatos();
+            } catch (IOException e) {
+                System.err.println("Reconexión fallida: " + e.getMessage());
+                try {
+                    Thread.sleep(5000); // Esperar antes de intentar nuevamente
+                } catch (InterruptedException ignored) {}
+            }
+        }
+    }
+
+
+
+    private static void reiniciarEnvioDatos() {
+        if (!scheduler.isShutdown()) {
+            scheduler.shutdownNow(); // Detener el scheduler anterior si está en ejecución
+        }
+
+        // Crear un nuevo scheduler
+        ScheduledExecutorService nuevoScheduler = Executors.newScheduledThreadPool(1);
+        nuevoScheduler.scheduleAtFixedRate(() -> {
+            try {
+                if (isConnected && !socket.isClosed() && oos != null) {
+                    // Dinámicos
+                    String cpuUsage = getCpuUsage();
+                    String memoryFree = getMemoryFree();
+                    String diskFree = getDiskFree();
+                    String bandwidthFree = getBandwidthFree();
+
+                    // Estáticos
+                    String[] staticData = new String[]{
+                            InetAddress.getLocalHost().getHostAddress(),
+                            InetAddress.getLocalHost().getHostName(),
+                            getProcessorModel(),
+                            getProcessorSpeed(),
+                            String.valueOf(getProcessorCores()),
+                            getDiskCapacity(),
+                            getOSVersion()
+                    };
+
+                    // Enviar datos al servidor
+                    TCPServer.ClientInfo clientInfo = new TCPServer.ClientInfo(
+                            staticData[0], staticData[1], staticData[2], staticData[3],
+                            staticData[4], staticData[5], staticData[6],
+                            cpuUsage, memoryFree, bandwidthFree, diskFree, "Conectado"
+                    );
+                    oos.writeObject(clientInfo);
+                    oos.flush();
+
+                    System.out.println("Datos enviados al server...");
+                    actualizarInterfaz(
+                            new String[]{cpuUsage, memoryFree, bandwidthFree, diskFree},
+                            staticData
+                    );
+                }
+            } catch (IOException e) {
+                System.err.println("Error al enviar datos al servidor: " + e.getMessage());
+                disconnect();
+                reconnect();
+            }
+        }, 0, 3, TimeUnit.SECONDS);
+
+        SimpleClient.scheduler = nuevoScheduler; // Reemplazar con el nuevo scheduler
+    }
+
+
+
 }
