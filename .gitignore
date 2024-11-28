@@ -13,6 +13,7 @@ target/
 *.iml
 *.ipr
 out/
+out/artifacts/servidor_jar/servidor.jar
 
 
 ### Eclipse ###
@@ -39,3 +40,4 @@ build/
 
 ### Mac OS ###
 .DS_Store
+
