@@ -14,11 +14,9 @@ public class UDPCandidateListener implements Runnable {
     public UDPCandidateListener(String clientIp) {
         this.clientIp = clientIp;
     }
-
     public boolean isSoyPotencialServidor() {
         return soyPotencialServidor;
     }
-
     public boolean isSoySegundoServidor() {
         return soySegundoServidor;
     }

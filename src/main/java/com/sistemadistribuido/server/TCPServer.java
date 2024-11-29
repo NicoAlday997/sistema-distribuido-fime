@@ -92,7 +92,6 @@ public class TCPServer {
     }
 
 
-
     private static void createGUI() {
         JFrame frame = new JFrame("Servidor - Lista de Clientes");
         frame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
@@ -210,24 +209,6 @@ public class TCPServer {
             this.memoryFree = memoryFree;
             this.bandwidthFree = bandwidthFree;
             this.diskFree = diskFree;
-            this.connectionStatus = connectionStatus;
-        }
-
-        public ClientInfo(String ip, String name, String processorModel, String processorSpeed, String processorCores,
-                          String diskCapacity, String osVersion, String cpuUsage, String memoryFree,
-                          String bandwidthFree, String diskFree, int score, String connectionStatus) {
-            this.ip = ip;
-            this.name = name;
-            this.processorModel = processorModel;
-            this.processorSpeed = processorSpeed;
-            this.processorCores = processorCores;
-            this.diskCapacity = diskCapacity;
-            this.osVersion = osVersion;
-            this.cpuUsage = cpuUsage;
-            this.memoryFree = memoryFree;
-            this.bandwidthFree = bandwidthFree;
-            this.diskFree = diskFree;
-            this.score = score;
             this.connectionStatus = connectionStatus;
         }
 

@@ -6,7 +6,6 @@ import java.io.IOException;
 import java.io.ObjectOutputStream;
 import java.net.InetAddress;
 import java.net.Socket;
-import java.net.SocketException;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
@@ -20,17 +19,13 @@ public class SimpleClient {
 
     private static boolean isConnected = false;
     private static ClientInterface clientInterface;
-
     private static Socket socket;
     private static ObjectOutputStream oos;
-
     private static String serverIP;
-
     // Sistema y hardware
     private static final SystemInfo si = new SystemInfo();
     private static final CentralProcessor processor = si.getHardware().getProcessor();
     private static final GlobalMemory memory = si.getHardware().getMemory();
-
     private static String getProcessorModel() {
         return processor.getProcessorIdentifier().getName();
     }
@@ -50,13 +45,10 @@ public class SimpleClient {
     private static String getOSVersion() {
         return si.getOperatingSystem().toString();
     }
-
     private static long[] previousTicks = null;
-
 
     // Executor para actualización automática
     private static  ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(1);
-
     private static UDPCandidateListener candidateListener;
 
 
@@ -65,6 +57,7 @@ public class SimpleClient {
         clientInterface = new ClientInterface();
         SwingUtilities.invokeLater(() -> clientInterface.setVisible(true));
 
+        //Descubrir IP de servidor en la red local
         serverIP = UDPClientListener.discoverServer();
 
         if (serverIP == null) {
@@ -95,7 +88,6 @@ public class SimpleClient {
         }
     }
 
-
     private static void cerrarSocketAnterior() {
         try {
             if (socket != null && !socket.isClosed()) {
@@ -105,7 +97,6 @@ public class SimpleClient {
             System.err.println("Error al cerrar el socket previo: " + e.getMessage());
         }
     }
-
 
     private static void connectToServer(String serverIP) {
         if (isConnected) {
@@ -331,7 +322,5 @@ public class SimpleClient {
 
         SimpleClient.scheduler = nuevoScheduler; // Reemplazar con el nuevo scheduler
     }
-
-
 
 }
