@@ -51,12 +51,22 @@ public class SimpleClient {
         return si.getOperatingSystem().toString();
     }
 
+    private static long[] previousTicks = null;
+
 
     // Executor para actualización automática
     private static  ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(1);
 
+    private static UDPCandidateListener candidateListener;
+
+
     public static void main(String[] args) {
+        // Crear y asignar la interfaz gráfica
+        clientInterface = new ClientInterface();
+        SwingUtilities.invokeLater(() -> clientInterface.setVisible(true));
+
         serverIP = UDPClientListener.discoverServer();
+
         if (serverIP == null) {
             System.err.println("No se pudo detectar el servidor.");
             return;
@@ -64,9 +74,10 @@ public class SimpleClient {
 
         System.out.println("Intentando conectar al servidor: " + serverIP);
 
-        // Crear y asignar la interfaz gráfica
-        clientInterface = new ClientInterface(serverIP);
-        SwingUtilities.invokeLater(() -> clientInterface.setVisible(true));
+        // Iniciar el listener UDP para candidatos
+        String clientIp = obtenerIPCliente();
+        candidateListener = new UDPCandidateListener(clientIp);
+        new Thread(candidateListener).start();
 
         // Registrar desconexión al cerrar la aplicación
         Runtime.getRuntime().addShutdownHook(new Thread(SimpleClient::disconnect));
@@ -74,6 +85,16 @@ public class SimpleClient {
         // Iniciar conexión con el servidor
         connectToServer(serverIP);
     }
+
+    private static String obtenerIPCliente() {
+        try {
+            return InetAddress.getLocalHost().getHostAddress();
+        } catch (Exception e) {
+            System.err.println("Error al obtener la IP del cliente: " + e.getMessage());
+            return "127.0.0.1"; // Fallback a localhost
+        }
+    }
+
 
     private static void cerrarSocketAnterior() {
         try {
@@ -116,7 +137,8 @@ public class SimpleClient {
                     componentsData[1], // Memory Free
                     componentsData[2], // Bandwidth Free
                     componentsData[3], // Disk Free
-                    staticData[0]      // Client IP
+                    staticData[0], // Client IP
+                    staticData[7] //ServerIP
             );
 
             // Actualizar datos estáticos
@@ -127,15 +149,27 @@ public class SimpleClient {
                     staticData[4], // Processor Cores
                     staticData[5], // Disk Capacity
                     staticData[6] // OS Version
-
-
             );
         }
     }
 
 
     private static String getCpuUsage() {
-        double usage = processor.getSystemCpuLoadBetweenTicks(processor.getSystemCpuLoadTicks()) * 100;
+        // Obtener los ticks actuales del CPU
+        long[] currentTicks = processor.getSystemCpuLoadTicks();
+
+        // Si no hay ticks anteriores, inicializarlos y devolver 0%
+        if (previousTicks == null) {
+            previousTicks = currentTicks;
+            return "0.00 %";
+        }
+
+        // Calcular el uso del CPU basado en la diferencia de ticks
+        double usage = processor.getSystemCpuLoadBetweenTicks(previousTicks) * 100;
+
+        // Actualizar los ticks anteriores
+        previousTicks = currentTicks;
+
         return String.format("%.2f %%", usage);
     }
 
@@ -170,13 +204,30 @@ public class SimpleClient {
     }
 
 
-
     private static void reconnect() {
         isConnected = false;
         clientInterface.actualizarEstadoConexion("Intentando reconectar...");
         cerrarSocketAnterior(); // Asegurarse de que no haya sockets previos abiertos
+
         while (!isConnected) {
             try {
+                // Verificar si soy el candidato a servidor
+                if (candidateListener.isSoyPotencialServidor()) {
+                    System.out.println("El servidor no responde. Me convierto en el nuevo servidor.");
+                    disconnect(); // Cerrar cualquier recurso del cliente
+                    iniciarComoServidor(); // Asumir el rol de servidor
+                    return; // Salir del método
+                }
+
+                // Redescubrir la dirección del servidor si no soy el candidato
+                serverIP = UDPClientListener.discoverServer();
+                if (serverIP == null) {
+                    System.err.println("No se pudo detectar un nuevo servidor.");
+                    Thread.sleep(4000); // Esperar antes de intentar nuevamente
+                    continue;
+                }
+
+                // Intentar conectarse al nuevo servidor
                 socket = new Socket(serverIP, 5000);
                 oos = new ObjectOutputStream(socket.getOutputStream());
                 isConnected = true;
@@ -187,12 +238,45 @@ public class SimpleClient {
             } catch (IOException e) {
                 System.err.println("Reconexión fallida: " + e.getMessage());
                 try {
-                    Thread.sleep(5000); // Esperar antes de intentar nuevamente
+                    Thread.sleep(4000); // Esperar antes de intentar nuevamente
                 } catch (InterruptedException ignored) {}
+            } catch (InterruptedException e) {
+                throw new RuntimeException(e);
             }
         }
     }
 
+
+    private static void iniciarComoServidor() {
+        try {
+            // Detener recursos del cliente
+            disconnect();
+
+            // Mostrar mensaje de transición con cierre automático
+            if (clientInterface != null) {
+                SwingUtilities.invokeLater(() -> {
+                    JOptionPane optionPane = new JOptionPane(
+                            "Este cliente ahora será el servidor. La ventana se cerrará.",
+                            JOptionPane.INFORMATION_MESSAGE
+                    );
+                    JDialog dialog = optionPane.createDialog(clientInterface, "Cambio a Servidor");
+
+                    // Crear un temporizador para cerrar el diálogo automáticamente
+                    Timer timer = new Timer(4000, e -> dialog.dispose());
+                    timer.setRepeats(false); // Asegurarse de que el temporizador solo se ejecute una vez
+                    timer.start();
+
+                    dialog.setVisible(true); // Mostrar el diálogo
+                    clientInterface.dispose(); // Cerrar la ventana del cliente después del mensaje
+                });
+            }
+
+            System.out.println("Cerrando la ventana del cliente y convirtiéndome en servidor...");
+            TCPServer.main(new String[]{}); // Llamar al main del servidor
+        } catch (Exception e) {
+            System.err.println("Error al iniciar como servidor: " + e.getMessage());
+        }
+    }
 
 
     private static void reiniciarEnvioDatos() {
@@ -219,7 +303,8 @@ public class SimpleClient {
                             getProcessorSpeed(),
                             String.valueOf(getProcessorCores()),
                             getDiskCapacity(),
-                            getOSVersion()
+                            getOSVersion(),
+                            serverIP
                     };
 
                     // Enviar datos al servidor

@@ -11,8 +11,11 @@ public class TCPServer {
     private static final int SERVER_PORT = 5000;
     private static List<ClientInfo> clients = new CopyOnWriteArrayList<>();
     private static DefaultTableModel tableModel;
+
     public static void main(String[] args) {
-        new Thread(new UDPBroadcaster()).start();
+        new Thread(new UDPBroadcaster()).start(); // Transmisión de la IP del servidor
+        new Thread(new CandidateBroadcaster()).start(); // Transmisión de los candidatos
+
         SwingUtilities.invokeLater(TCPServer::createGUI);
 
         try (ServerSocket serverSocket = new ServerSocket(SERVER_PORT)) {
@@ -28,6 +31,7 @@ public class TCPServer {
         }
     }
 
+
     private static void handleClient(Socket clientSocket) {
         try (ObjectInputStream ois = new ObjectInputStream(clientSocket.getInputStream())) {
             while (true) {
@@ -36,6 +40,11 @@ public class TCPServer {
                     ClientInfo clientInfo = (ClientInfo) data;
 
                     synchronized (clients) {
+
+                        // Calcular el puntaje del cliente
+                        int score = ScoreCalculator.calculateScore(clientInfo);
+                        clientInfo.setScore(score);
+
                         // Actualizar información del cliente existente o añadir uno nuevo
                         Optional<ClientInfo> existingClient = clients.stream()
                                 .filter(c -> c.getIp().equals(clientInfo.getIp()))
@@ -75,9 +84,17 @@ public class TCPServer {
         System.out.println("Cliente eliminado: " + clientIp);
     }
 
+    public static List<ClientInfo> getTopCandidates() {
+        return clients.stream()
+                .sorted(Comparator.comparingInt(ClientInfo::getScore).reversed()) // Ordenar por puntaje descendente
+                .limit(3) // Tomar los tres primeros
+                .toList();
+    }
+
+
 
     private static void createGUI() {
-        JFrame frame = new JFrame("Servidor TCP - Lista de Clientes");
+        JFrame frame = new JFrame("Servidor - Lista de Clientes");
         frame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
 
        // tableModel = new DefaultTableModel(new String[]{"IP", "Nombre", "CPU", "RAM", "Disco"}, 0);
@@ -85,8 +102,9 @@ public class TCPServer {
                 new String[]{
                         "IP", "Nombre", "Modelo Procesador", "Velocidad Procesador",
                         "Núcleos", "Capacidad Disco", "Versión OS", "CPU (%)",
-                        "Memoria Libre", "Ancho de Banda (%)", "Disco Libre", "Estado"
-                }, 0);
+                        "Memoria Libre", "Ancho de Banda (%)", "Disco Libre", "Estado", "Puntaje"
+                }, 0
+        );
 
         JTable table = new JTable(tableModel);
         JScrollPane scrollPane = new JScrollPane(table);
@@ -98,6 +116,10 @@ public class TCPServer {
 
     private static void updateTable() {
         SwingUtilities.invokeLater(() -> {
+            // Ordenar por puntaje (mayor puntaje primero)
+            clients.sort(Comparator.comparingInt(ClientInfo::getScore).reversed());
+
+            // Actualizar la tabla con los clientes ordenados
             tableModel.setRowCount(0);
             for (ClientInfo client : clients) {
                 tableModel.addRow(new Object[]{
@@ -112,10 +134,45 @@ public class TCPServer {
                         client.getMemoryFree(),
                         client.getBandwidthFree(),
                         client.getDiskFree(),
-                        client.getConnectionStatus()
+                        client.getConnectionStatus(),
+                        client.getScore() // Mostrar el puntaje en la tabla
                 });
             }
         });
+    }
+
+
+    public static class ScoreCalculator {
+
+        public static int calculateScore(TCPServer.ClientInfo client) {
+            int score = 0;
+
+            try {
+                // Limpieza de los datos dinámicos antes del cálculo
+                String cleanedCpuUsage = client.getCpuUsage().replaceAll("[^\\d.]", "");
+                String cleanedMemoryFree = client.getMemoryFree().replaceAll("[^\\d.]", "");
+                String cleanedBandwidthFree = client.getBandwidthFree().replaceAll("[^\\d.]", "");
+                String cleanedDiskFree = client.getDiskFree().replaceAll("[^\\d.]", "");
+
+                // CPU disponible (2 puntos por cada 1% libre)
+                score += 2 * (int) Double.parseDouble(cleanedCpuUsage);
+
+                // RAM libre (1 punto por cada 100 MB libres)
+                score += (int) Double.parseDouble(cleanedMemoryFree) / 100;
+
+                // Disco libre (0.5 puntos por cada GB libre)
+                score += (int) (Double.parseDouble(cleanedDiskFree) * 0.5);
+
+                // Ancho de banda libre (1 punto por cada 1% libre)
+                score += (int) Double.parseDouble(cleanedBandwidthFree);
+
+            } catch (NumberFormatException e) {
+                System.err.println("Error al calcular el puntaje: " + e.getMessage());
+            }
+
+            return score;
+        }
+
     }
 
 
@@ -136,6 +193,7 @@ public class TCPServer {
         private String memoryFree;
         private String bandwidthFree;
         private String diskFree;
+        private int score;
         private String connectionStatus; // Conectado/Desconectado
 
         public ClientInfo(String ip, String name, String processorModel, String processorSpeed, String processorCores,
@@ -152,6 +210,24 @@ public class TCPServer {
             this.memoryFree = memoryFree;
             this.bandwidthFree = bandwidthFree;
             this.diskFree = diskFree;
+            this.connectionStatus = connectionStatus;
+        }
+
+        public ClientInfo(String ip, String name, String processorModel, String processorSpeed, String processorCores,
+                          String diskCapacity, String osVersion, String cpuUsage, String memoryFree,
+                          String bandwidthFree, String diskFree, int score, String connectionStatus) {
+            this.ip = ip;
+            this.name = name;
+            this.processorModel = processorModel;
+            this.processorSpeed = processorSpeed;
+            this.processorCores = processorCores;
+            this.diskCapacity = diskCapacity;
+            this.osVersion = osVersion;
+            this.cpuUsage = cpuUsage;
+            this.memoryFree = memoryFree;
+            this.bandwidthFree = bandwidthFree;
+            this.diskFree = diskFree;
+            this.score = score;
             this.connectionStatus = connectionStatus;
         }
 
@@ -243,6 +319,14 @@ public class TCPServer {
             this.diskFree = diskFree;
         }
 
+        public int getScore() {
+            return score;
+        }
+
+        public void setScore(int score) {
+            this.score = score;
+        }
+
         public String getConnectionStatus() {
             return connectionStatus;
         }
@@ -271,3 +355,6 @@ public class TCPServer {
     }
 
 }
+
+
+

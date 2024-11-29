@@ -23,7 +23,7 @@ public class ClientInterface extends JFrame {
     private JLabel lblServerIp;
     private JLabel lblConnectionStatus;
 
-    public ClientInterface(String serverIP) {
+    public ClientInterface() {
         setTitle("Especificaciones del Cliente");
         setSize(600, 500);
         setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
@@ -77,7 +77,7 @@ public class ClientInterface extends JFrame {
         add(lblClientIp);
 
         add(new JLabel("IP del Servidor:"));
-        lblServerIp = new JLabel(serverIP);
+        lblServerIp = new JLabel("Cargando...");
         add(lblServerIp);
 
         // Estado de conexión
@@ -123,13 +123,14 @@ public class ClientInterface extends JFrame {
      * @param clientIp      Dirección IP del cliente.
      */
     public void actualizarDatosDinamicos(String cpuUsage, String memoryFree, String bandwidthFree,
-                                         String diskFree, String clientIp) {
+                                         String diskFree, String clientIp, String serverIP) {
         SwingUtilities.invokeLater(() -> {
             lblCpuUsage.setText(cpuUsage);
             lblMemoryFree.setText(memoryFree);
             lblBandwidthFree.setText(bandwidthFree);
             lblDiskFree.setText(diskFree);
             lblClientIp.setText(clientIp);
+            lblServerIp.setText(serverIP);
         });
     }
 }
