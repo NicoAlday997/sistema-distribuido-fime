@@ -1,22 +1,40 @@
 package com.sistemadistribuido.server;
 
+import oshi.SystemInfo;
+import oshi.hardware.CentralProcessor;
+import oshi.hardware.GlobalMemory;
+
+import java.awt.*;
 import java.io.*;
 import java.net.*;
 import java.util.*;
+import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 import javax.swing.*;
+import javax.swing.table.DefaultTableCellRenderer;
 import javax.swing.table.DefaultTableModel;
 import java.io.Serializable;
+
+import static java.lang.Integer.parseInt;
+
 public class TCPServer {
     private static final int SERVER_PORT = 5000;
     private static List<ClientInfo> clients = new CopyOnWriteArrayList<>();
     private static DefaultTableModel tableModel;
+
+    private static final SystemInfo si = new SystemInfo();
+    private static final CentralProcessor processor = si.getHardware().getProcessor();
+
+    private static final GlobalMemory memory = si.getHardware().getMemory();
+
 
     public static void main(String[] args) {
         new Thread(new UDPBroadcaster()).start(); // Transmisión de la IP del servidor
         new Thread(new CandidateBroadcaster()).start(); // Transmisión de los candidatos
 
         SwingUtilities.invokeLater(TCPServer::createGUI);
+        // Añadir al servidor a la lista de clientes
+        addServerToList();
 
         try (ServerSocket serverSocket = new ServerSocket(SERVER_PORT)) {
             System.out.println("Servidor TCP iniciado en el puerto " + SERVER_PORT);
@@ -96,17 +114,32 @@ public class TCPServer {
         JFrame frame = new JFrame("Servidor - Lista de Clientes");
         frame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
 
-       // tableModel = new DefaultTableModel(new String[]{"IP", "Nombre", "CPU", "RAM", "Disco"}, 0);
         tableModel = new DefaultTableModel(
                 new String[]{
-                        "IP", "Nombre", "Modelo Procesador", "Velocidad Procesador",
+                        "Tipo", "IP", "Nombre", "Modelo Procesador", "Velocidad Procesador",
                         "Núcleos", "Capacidad Disco", "Versión OS", "CPU (%)",
                         "Memoria Libre", "Ancho de Banda (%)", "Disco Libre", "Estado", "Puntaje"
                 }, 0
         );
 
+
         JTable table = new JTable(tableModel);
         JScrollPane scrollPane = new JScrollPane(table);
+
+        // Personalizar las celdas para diferenciar al servidor
+        table.setDefaultRenderer(Object.class, new DefaultTableCellRenderer() {
+            @Override
+            public Component getTableCellRendererComponent(JTable table, Object value, boolean isSelected,
+                                                           boolean hasFocus, int row, int column) {
+                Component cell = super.getTableCellRendererComponent(table, value, isSelected, hasFocus, row, column);
+                if ("Servidor".equals(table.getValueAt(row, 0))) { // Columna "Tipo"
+                    cell.setBackground(Color.LIGHT_GRAY); // Color para el servidor
+                } else {
+                    cell.setBackground(Color.WHITE); // Color para los clientes
+                }
+                return cell;
+            }
+        });
 
         frame.add(scrollPane);
         frame.setSize(600, 400);
@@ -122,6 +155,7 @@ public class TCPServer {
             tableModel.setRowCount(0);
             for (ClientInfo client : clients) {
                 tableModel.addRow(new Object[]{
+                        client.getTipo().equals("Servidor") ? "Servidor" : "Cliente", // Tipo
                         client.getIp(),
                         client.getName(),
                         client.getProcessorModel(),
@@ -136,6 +170,7 @@ public class TCPServer {
                         client.getConnectionStatus(),
                         client.getScore() // Mostrar el puntaje en la tabla
                 });
+
             }
         });
     }
@@ -143,42 +178,75 @@ public class TCPServer {
 
     public static class ScoreCalculator {
 
+        // Ponderación de modelos de procesadores
+        private static final Map<String, Integer> processorModelScores = Map.of(
+                "Intel Core i7", 30,
+                "Intel Core i5", 20,
+                "Intel Core i3", 10,
+                "AMD Ryzen 7", 30,
+                "AMD Ryzen 5", 20,
+                "AMD Ryzen 3", 10
+        );
+
+        // Pesos de cada componente
+        private static final double WEIGHT_PROCESSOR = 0.5;
+        private static final double WEIGHT_DISK = 0.2;
+        private static final double WEIGHT_MEMORY = 0.2;
+        private static final double WEIGHT_BANDWIDTH = 0.1;
+
+        // Valores máximos para normalización
+        private static final int MAX_CORES = 16; // Núcleos físicos
+        private static final double MAX_SPEED = 5.0; // GHz
+        private static final double MAX_DISK_CAPACITY = 2000.0; // GB
+
         public static int calculateScore(TCPServer.ClientInfo client) {
-            int score = 0;
+            double normalizedScore = 0;
 
             try {
-                // Limpieza de los datos dinámicos antes del cálculo
-                String cleanedCpuUsage = client.getCpuUsage().replaceAll("[^\\d.]", "");
-                String cleanedMemoryFree = client.getMemoryFree().replaceAll("[^\\d.]", "");
-                String cleanedBandwidthFree = client.getBandwidthFree().replaceAll("[^\\d.]", "");
-                String cleanedDiskFree = client.getDiskFree().replaceAll("[^\\d.]", "");
+                // Procesador: Núcleos físicos
+                int cores = parseInt(client.getProcessorCores());
+                double coreScore = (cores / (double) MAX_CORES) * 100;
 
-                // CPU disponible (2 puntos por cada 1% libre)
-                score += 2 * (int) Double.parseDouble(cleanedCpuUsage);
+                // Procesador: Velocidad
+                double speed = Double.parseDouble(client.getProcessorSpeed().replaceAll("[^\\d.]", ""));
+                double speedScore = (speed / MAX_SPEED) * 100;
 
-                // RAM libre (1 punto por cada 100 MB libres)
-                score += (int) Double.parseDouble(cleanedMemoryFree) / 100;
+                // Procesador: Modelo
+                int modelScore = processorModelScores.getOrDefault(client.getProcessorModel(), 5);
 
-                // Disco libre (0.5 puntos por cada GB libre)
-                score += (int) (Double.parseDouble(cleanedDiskFree) * 0.5);
+                // Disco: Capacidad
+                double diskCapacity = Double.parseDouble(client.getDiskCapacity().replaceAll("[^\\d.]", ""));
+                double diskScore = (diskCapacity / MAX_DISK_CAPACITY) * 100;
 
-                // Ancho de banda libre (1 punto por cada 1% libre)
-                score += (int) Double.parseDouble(cleanedBandwidthFree);
+                // Memoria libre
+                double memoryFree = Double.parseDouble(client.getMemoryFree().replaceAll("[^\\d.]", ""));
+                double memoryScore = memoryFree / 32.0 * 100; // Suponiendo un máximo de 32 GB de RAM
+
+                // Ancho de banda libre
+                double bandwidthFree = Double.parseDouble(client.getBandwidthFree().replaceAll("[^\\d.]", ""));
+                double bandwidthScore = bandwidthFree; // Ya está en porcentaje (0-100)
+
+                // Calcular puntaje ponderado
+                normalizedScore += (modelScore + coreScore + speedScore) * WEIGHT_PROCESSOR;
+                normalizedScore += diskScore * WEIGHT_DISK;
+                normalizedScore += memoryScore * WEIGHT_MEMORY;
+                normalizedScore += bandwidthScore * WEIGHT_BANDWIDTH;
 
             } catch (NumberFormatException e) {
                 System.err.println("Error al calcular el puntaje: " + e.getMessage());
             }
 
-            return score;
+            return (int) normalizedScore;
         }
-
     }
+
 
 
     public static class ClientInfo implements Serializable {
         private static final long serialVersionUID = 1L;
 
         // Monitoreo Estático
+        private String tipo;
         private String ip;
         private String name; // Nombre del equipo
         private String processorModel;
@@ -195,9 +263,10 @@ public class TCPServer {
         private int score;
         private String connectionStatus; // Conectado/Desconectado
 
-        public ClientInfo(String ip, String name, String processorModel, String processorSpeed, String processorCores,
+        public ClientInfo(String tipo, String ip, String name, String processorModel, String processorSpeed, String processorCores,
                           String diskCapacity, String osVersion, String cpuUsage, String memoryFree,
                           String bandwidthFree, String diskFree, String connectionStatus) {
+            this.tipo = tipo;
             this.ip = ip;
             this.name = name;
             this.processorModel = processorModel;
@@ -210,6 +279,14 @@ public class TCPServer {
             this.bandwidthFree = bandwidthFree;
             this.diskFree = diskFree;
             this.connectionStatus = connectionStatus;
+        }
+
+        public String getTipo() {
+            return tipo;
+        }
+
+        public void setTipo(String tipo) {
+            this.tipo = tipo;
         }
 
         public String getIp() {
@@ -316,24 +393,128 @@ public class TCPServer {
             this.connectionStatus = connectionStatus;
         }
 
+
         @Override
         public String toString() {
             return "ClientInfo{" +
-                    "ip='" + ip + '\'' +
+                    "tipo='" + tipo + '\'' +
+                    ", ip='" + ip + '\'' +
                     ", name='" + name + '\'' +
                     ", processorModel='" + processorModel + '\'' +
                     ", processorSpeed='" + processorSpeed + '\'' +
-                    ", processorCores=" + processorCores +
+                    ", processorCores='" + processorCores + '\'' +
                     ", diskCapacity='" + diskCapacity + '\'' +
                     ", osVersion='" + osVersion + '\'' +
                     ", cpuUsage='" + cpuUsage + '\'' +
                     ", memoryFree='" + memoryFree + '\'' +
                     ", bandwidthFree='" + bandwidthFree + '\'' +
                     ", diskFree='" + diskFree + '\'' +
+                    ", score=" + score +
                     ", connectionStatus='" + connectionStatus + '\'' +
                     '}';
         }
     }
+
+    private static String getProcessorModel() {
+        return processor.getProcessorIdentifier().getName();
+    }
+    private static String getProcessorSpeed() {
+        return String.format("%.2f GHz", processor.getMaxFreq() / 1_000_000_000.0);
+    }
+    private static int getProcessorCores() {
+        return processor.getPhysicalProcessorCount();
+    }
+    private static String getDiskCapacity() {
+        long totalDiskCapacity = 0;
+        for (File root : File.listRoots()) {
+            totalDiskCapacity += root.getTotalSpace();
+        }
+        return String.format("%.2f GB", totalDiskCapacity / (1024.0 * 1024 * 1024));
+    }
+    private static String getOSVersion() {
+        return si.getOperatingSystem().toString();
+    }
+    private static long[] previousTicks = null;
+
+    private static String getCpuUsage() {
+        try {
+            long[] currentTicks = processor.getSystemCpuLoadTicks();
+            if (previousTicks == null) {
+                previousTicks = currentTicks;
+                return "0.00 %";
+            }
+            double usage = processor.getSystemCpuLoadBetweenTicks(previousTicks) * 100;
+            previousTicks = currentTicks;
+            return String.format("%.2f %%", usage);
+        } catch (Exception e) {
+            System.err.println("Error al obtener el uso de CPU: " + e.getMessage());
+            return "0.00 %"; // Valor por defecto
+        }
+    }
+
+
+    private static String getMemoryFree() {
+        double memoryFree = memory.getAvailable() / (1024.0 * 1024 * 1024);
+        return String.format("%.2f GB", memoryFree);
+    }
+
+    private static String getDiskFree() {
+        long totalDiskFree = 0;
+        for (File root : File.listRoots()) {
+            totalDiskFree += root.getFreeSpace();
+        }
+        return String.format("%.2f GB", totalDiskFree / (1024.0 * 1024 * 1024));
+    }
+
+    private static String getBandwidthFree() {
+        // Simulación de ancho de banda libre
+        return String.format("%.2f %%", Math.random() * 100);
+    }
+    private static void addServerToList() {
+        try {
+            ClientInfo serverInfo = getClientInfo();
+            int score = ScoreCalculator.calculateScore(serverInfo);
+            serverInfo.setScore(score);
+
+            // Evitar duplicados
+            synchronized (clients) {
+                boolean alreadyExists = clients.stream()
+                        .anyMatch(client -> client.getConnectionStatus().equals("Servidor"));
+                if (!alreadyExists) {
+                    clients.add(serverInfo);
+                }
+            }
+            updateTable();
+        } catch (Exception e) {
+            System.err.println("Error al calcular el puntaje del servidor: " + e.getMessage());
+        }
+    }
+
+
+
+    private static ClientInfo getClientInfo() throws UnknownHostException {
+        String tipo = "Servidor";
+        String ip = InetAddress.getLocalHost().getHostAddress();
+        String name = InetAddress.getLocalHost().getHostName();
+        String processorModel = getProcessorModel();
+        String processorSpeed = getProcessorSpeed();
+        String processorCores = String.valueOf(getProcessorCores());
+        String diskCapacity = getDiskCapacity();
+        String osVersion = getOSVersion();
+        String cpuUsage = getCpuUsage();
+        String memoryFree = getMemoryFree();
+        String bandwidthFree = getBandwidthFree();
+        String diskFree = getDiskFree();
+
+        // Crear objeto ClientInfo para el servidor
+        ClientInfo serverInfo = new ClientInfo(
+                tipo, ip, name, processorModel, processorSpeed, processorCores, diskCapacity, osVersion,
+                cpuUsage, memoryFree, bandwidthFree, diskFree, "Conectado"
+        );
+
+        return serverInfo;
+    }
+
 
 }
 

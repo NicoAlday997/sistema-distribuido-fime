@@ -300,6 +300,7 @@ public class SimpleClient {
 
                     // Enviar datos al servidor
                     TCPServer.ClientInfo clientInfo = new TCPServer.ClientInfo(
+                            "Cliente",
                             staticData[0], staticData[1], staticData[2], staticData[3],
                             staticData[4], staticData[5], staticData[6],
                             cpuUsage, memoryFree, bandwidthFree, diskFree, "Conectado"
