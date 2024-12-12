@@ -8,11 +8,18 @@ import java.util.List;
 public class CandidateBroadcaster implements Runnable {
     private static final int BROADCAST_PORT = 9877; // Puerto para candidatos
     private static final int BROADCAST_INTERVAL = 5000; // Intervalo en milisegundos
+    private static volatile boolean running = true;
+
+    public static void stopBroadcast() {
+        running = false;
+        Thread.currentThread().interrupt(); // Interrumpir el hilo actual.
+    }
+
 
     @Override
     public void run() {
         try (DatagramSocket socket = new DatagramSocket()) {
-            while (true) {
+            while (running) {
                 // Obtener los mejores candidatos
                 List<TCPServer.ClientInfo> topCandidates = TCPServer.getTopCandidates();
 
@@ -42,8 +49,15 @@ public class CandidateBroadcaster implements Runnable {
                 // Esperar antes de enviar el próximo mensaje
                 Thread.sleep(BROADCAST_INTERVAL);
             }
+        } catch (InterruptedException e) {
+            System.out.println("Broadcast interrumpido: " + e.getMessage());
+            Thread.currentThread().interrupt(); // Restaurar el estado de interrupción.
         } catch (Exception e) {
-            System.err.println("Error en CandidateBroadcaster: " + e.getMessage());
+            if (running) {
+                System.err.println("Error en CandidateBroadcaster: " + e.getMessage());
+            } else {
+                System.out.println("CandidateBroadcaster detenido.");
+            }
         }
     }
 }

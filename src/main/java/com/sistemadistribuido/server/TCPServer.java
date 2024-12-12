@@ -29,13 +29,32 @@ public class TCPServer {
     private static final SystemInfo si = new SystemInfo();
     private static final CentralProcessor processor = si.getHardware().getProcessor();
     private static final GlobalMemory memory = si.getHardware().getMemory();
-
     private static ClientInfo serverInfo;
+
+    private static JFrame serverFrame;
+    private static final List<Thread> clientThreads = new CopyOnWriteArrayList<>();
+
+
+
+    private static ServerSocket serverSocket; // Añade esta variable si aún no está definida
+
+    private static final ScheduledExecutorService evaluationScheduler = Executors.newScheduledThreadPool(1);
+    private static final ScheduledExecutorService dataUpdateScheduler = Executors.newScheduledThreadPool(1);
+
+    private static UDPBroadcaster udpBroadcaster;
+    private static CandidateBroadcaster candidateBroadcaster;
 
 
     public static void main(String[] args) {
-        new Thread(new UDPBroadcaster()).start(); // Transmisión de la IP del servidor
-        new Thread(new CandidateBroadcaster()).start(); // Transmisión de los candidatos
+//        new Thread(new UDPBroadcaster()).start(); // Transmisión de la IP del servidor
+//        new Thread(new CandidateBroadcaster()).start(); // Transmisión de los candidatos
+        // Crear y asignar referencias a los objetos
+        udpBroadcaster = new UDPBroadcaster();
+        candidateBroadcaster = new CandidateBroadcaster();
+
+        // Iniciar los threads
+        new Thread(udpBroadcaster).start(); // Transmisión de la IP del servidor
+        new Thread(candidateBroadcaster).start(); // Transmisión de los candidatos
 
         SwingUtilities.invokeLater(TCPServer::createGUI);
         // Añadir al servidor a la lista de clientes
@@ -43,29 +62,41 @@ public class TCPServer {
         startServerDataUpdate(); // Actualizar datos dinámicos del servidor periódicamente
         startServerEvaluation(); // Evaluar cambio de servidor cada 12 segundos
 
-        try (ServerSocket serverSocket = new ServerSocket(SERVER_PORT)) {
+        try {
+            serverSocket = new ServerSocket(SERVER_PORT); // Asigna a la variable global
             System.out.println("Servidor TCP iniciado en el puerto " + SERVER_PORT);
 
             while (true) {
-                Socket clientSocket = serverSocket.accept();
-                System.out.println("Cliente conectado: " + clientSocket.getInetAddress().getHostAddress());
-                new Thread(() -> handleClient(clientSocket)).start();
+                try {
+                    Socket clientSocket = serverSocket.accept();
+                    System.out.println("Cliente conectado: " + clientSocket.getInetAddress().getHostAddress());
+                    //new Thread(() -> handleClient(clientSocket)).start();
+                    Thread clientThread = new Thread(() -> handleClient(clientSocket));
+                    clientThreads.add(clientThread);
+                    clientThread.start();
+
+                } catch (SocketException e) {
+                    System.out.println("ServerSocket cerrado. Deteniendo el servidor.");
+                    break; // Salir del bucle cuando el socket está cerrado
+                }
             }
         } catch (IOException e) {
-            e.printStackTrace();
+            System.err.println("Error en el servidor: " + e.getMessage());
+        } finally {
+            stopServer(); // Intenta cerrar recursos si ocurre un error
         }
     }
 
 
+
     private static void handleClient(Socket clientSocket) {
         try (ObjectInputStream ois = new ObjectInputStream(clientSocket.getInputStream())) {
-            while (true) {
+            while (!Thread.currentThread().isInterrupted() && !clientSocket.isClosed()) {
                 Object data = ois.readObject();
                 if (data instanceof ClientInfo) {
                     ClientInfo clientInfo = (ClientInfo) data;
 
                     synchronized (clients) {
-
                         // Calcular el puntaje del cliente
                         int score = ScoreCalculator.calculateScore(clientInfo);
                         clientInfo.setScore(score);
@@ -80,7 +111,6 @@ public class TCPServer {
                         clients.add(clientInfo);
                         updateTable();
                     }
-
                     System.out.println("Datos actualizados del cliente: " + clientInfo);
                 } else {
                     System.err.println("Datos no reconocidos recibidos del cliente.");
@@ -98,8 +128,10 @@ public class TCPServer {
             } catch (IOException e) {
                 System.err.println("Error al cerrar el socket: " + e.getMessage());
             }
+            System.out.println("Hilo de cliente terminado: " + Thread.currentThread().getName());
         }
     }
+
 
     private static void removerCliente(String clientIp) {
         synchronized (clients) {
@@ -118,8 +150,8 @@ public class TCPServer {
 
 
     private static void createGUI() {
-        JFrame frame = new JFrame("Servidor - Lista de Clientes");
-        frame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
+        serverFrame = new JFrame("Servidor - Lista de Clientes");
+        serverFrame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
 
         tableModel = new DefaultTableModel(
                 new String[]{
@@ -128,7 +160,6 @@ public class TCPServer {
                         "Memoria Libre", "Ancho de Banda (%)", "Disco Libre", "Estado", "Puntaje"
                 }, 0
         );
-
 
         JTable table = new JTable(tableModel);
         JScrollPane scrollPane = new JScrollPane(table);
@@ -148,10 +179,11 @@ public class TCPServer {
             }
         });
 
-        frame.add(scrollPane);
-        frame.setSize(600, 400);
-        frame.setVisible(true);
+        serverFrame.add(scrollPane);
+        serverFrame.setSize(600, 400);
+        serverFrame.setVisible(true);
     }
+
 
     private static void updateTable() {
         SwingUtilities.invokeLater(() -> {
@@ -526,9 +558,9 @@ public class TCPServer {
     }
 
     private static void startServerEvaluation() {
-        ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(1);
+        //ScheduledExecutorService evaluationScheduler = Executors.newScheduledThreadPool(1);
 
-        scheduler.scheduleAtFixedRate(() -> {
+        evaluationScheduler.scheduleAtFixedRate(() -> {
             synchronized (clients) {
                 if (clients.isEmpty()) {
                     System.out.println("No hay clientes conectados para evaluar.");
@@ -547,46 +579,109 @@ public class TCPServer {
                 }
 
                 try {
-
-                    if(!serverInfo.getName().equals(topClient.getName())) { //validacion para omitir validacion si el unico en la lista es el servidor
-
+                    // Verificar si el mejor puntaje no pertenece al servidor actual
+                    if (!serverInfo.getName().equals(topClient.getName())) {
                         int serverScore = serverInfo.getScore();
 
                         if (topClient.getScore() > serverScore && clients.size() != 1) {
                             System.out.println("Cambio de servidor: " + topClient.getIp() + " será el nuevo servidor.");
-                            // El antiguo servidor se convierte en cliente
-                            System.out.println("El servidor actual se convertirá en cliente.");
 
-                            //Cerrar de manera correcta el servidor ya que la siguiente linea terminaba todo el fujo e impedia
-                            // que se ejecutara ahora como cliente
+                            // Detener funciones de servidor
+                            // Iniciar como cliente solo después de que `stopServer` termine
+                            SwingUtilities.invokeLater(() -> {
+                                System.out.println("Iniciamos como cliente");
+                                SimpleClient.main(new String[]{});
+                            });
 
-                            //TCPServer.stopServer(); // Detener funciones de servidor
-                            SimpleClient.main(new String[]{}); // Reinicia como cliente
+                            stopServer();
+
+
+                            // Cambiar el estado a cliente
+                            //serverInfo.setTipo("Cliente");
+                            //serverInfo.setConnectionStatus("Desconectado");
+                            //serverFrame.dispose();;
+
+
                         }
-                    }else {
+
+                    }
+                    else {
                         System.out.println("El servidor actual sigue siendo el mejor (puntaje: " + serverInfo.getScore() + ").");
                     }
                 } catch (Exception e) {
                     System.err.println("Error durante la evaluación del servidor: " + e.getMessage());
                 }
             }
-        }, 0, 18, TimeUnit.SECONDS); // Evaluación cada 12 segundos
+        }, 0, 18, TimeUnit.SECONDS); // Evaluación cada 18 segundos
     }
+
 
 
     public static void stopServer() {
+        System.out.println("Deteniendo el servidor...");
         try {
-            System.out.println("Deteniendo el servidor...");
-            System.exit(0); // Detiene el proceso del servidor
+            // Detener las tareas programadas de forma ordenada
+            evaluationScheduler.shutdown();
+            dataUpdateScheduler.shutdown();
+
+            if (!evaluationScheduler.awaitTermination(5, TimeUnit.SECONDS)) {
+                System.err.println("El evaluador no se detuvo a tiempo. Forzando...");
+                evaluationScheduler.shutdownNow();
+            }
+            if (!dataUpdateScheduler.awaitTermination(5, TimeUnit.SECONDS)) {
+                System.err.println("El actualizador de datos no se detuvo a tiempo. Forzando...");
+                dataUpdateScheduler.shutdownNow();
+            }
+            System.out.println("Schedulers detenidos.");
+
+            // Detener la transmisión UDP
+            try {
+                if (udpBroadcaster != null) udpBroadcaster.stopBroadcast();
+                if (candidateBroadcaster != null) candidateBroadcaster.stopBroadcast();
+                System.out.println("Transmisión UDP detenida.");
+            } catch (Exception e) {
+                System.err.println("Error al detener la transmisión UDP: " + e.getMessage());
+            }
+
+            // Interrumpir hilos de cliente
+            for (Thread clientThread : clientThreads) {
+                clientThread.interrupt();
+            }
+            clientThreads.clear();
+
+            // Cerrar el ServerSocket
+            if (serverSocket != null && !serverSocket.isClosed()) {
+                serverSocket.close();
+                System.out.println("ServerSocket cerrado.");
+            }
+
+            // Cerrar la interfaz gráfica
+            SwingUtilities.invokeLater(() -> {
+                if (serverFrame != null) {
+                    serverFrame.dispose();
+                    System.out.println("Interfaz gráfica cerrada.");
+                }
+            });
+        } catch (InterruptedException e) {
+            System.err.println("Error al detener las tareas programadas: " + e.getMessage());
+            Thread.currentThread().interrupt();
+        } catch (IOException e) {
+            System.err.println("Error al cerrar el ServerSocket: " + e.getMessage());
         } catch (Exception e) {
-            System.err.println("Error al detener el servidor: " + e.getMessage());
+            System.err.println("Error general al detener el servidor: " + e.getMessage());
+            e.printStackTrace();
         }
     }
 
-    private static void startServerDataUpdate() {
-        ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(1);
 
-        scheduler.scheduleAtFixedRate(() -> {
+
+
+
+
+    private static void startServerDataUpdate() {
+        //ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(1);
+
+        dataUpdateScheduler.scheduleAtFixedRate(() -> {
             try {
                 synchronized (serverInfo) {
                     // Actualizar datos dinámicos

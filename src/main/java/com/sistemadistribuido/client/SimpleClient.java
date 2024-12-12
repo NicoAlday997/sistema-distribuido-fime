@@ -33,7 +33,7 @@ public class SimpleClient {
         return String.format("%.2f GHz", processor.getMaxFreq() / 1_000_000_000.0);
     }
     private static int getProcessorCores() {
-        return processor.getLogicalProcessorCount();
+        return processor.getPhysicalProcessorCount();
     }
     private static String getDiskCapacity() {
         long totalDiskCapacity = 0;
