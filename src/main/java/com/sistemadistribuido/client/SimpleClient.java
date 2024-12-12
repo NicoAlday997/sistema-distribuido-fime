@@ -319,7 +319,7 @@ public class SimpleClient {
                 disconnect();
                 reconnect();
             }
-        }, 0, 3, TimeUnit.SECONDS);
+        }, 0, 6, TimeUnit.SECONDS);
 
         SimpleClient.scheduler = nuevoScheduler; // Reemplazar con el nuevo scheduler
     }

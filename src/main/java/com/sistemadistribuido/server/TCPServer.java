@@ -1,5 +1,6 @@
 package com.sistemadistribuido.server;
 
+import com.sistemadistribuido.client.SimpleClient;
 import oshi.SystemInfo;
 import oshi.hardware.CentralProcessor;
 import oshi.hardware.GlobalMemory;
@@ -14,6 +15,9 @@ import javax.swing.*;
 import javax.swing.table.DefaultTableCellRenderer;
 import javax.swing.table.DefaultTableModel;
 import java.io.Serializable;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 
 import static java.lang.Integer.parseInt;
 
@@ -24,8 +28,9 @@ public class TCPServer {
 
     private static final SystemInfo si = new SystemInfo();
     private static final CentralProcessor processor = si.getHardware().getProcessor();
-
     private static final GlobalMemory memory = si.getHardware().getMemory();
+
+    private static ClientInfo serverInfo;
 
 
     public static void main(String[] args) {
@@ -35,6 +40,8 @@ public class TCPServer {
         SwingUtilities.invokeLater(TCPServer::createGUI);
         // Añadir al servidor a la lista de clientes
         addServerToList();
+        startServerDataUpdate(); // Actualizar datos dinámicos del servidor periódicamente
+        startServerEvaluation(); // Evaluar cambio de servidor cada 12 segundos
 
         try (ServerSocket serverSocket = new ServerSocket(SERVER_PORT)) {
             System.out.println("Servidor TCP iniciado en el puerto " + SERVER_PORT);
@@ -436,22 +443,25 @@ public class TCPServer {
     }
     private static long[] previousTicks = null;
 
-    private static String getCpuUsage() {
-        try {
-            long[] currentTicks = processor.getSystemCpuLoadTicks();
-            if (previousTicks == null) {
-                previousTicks = currentTicks;
-                return "0.00 %";
-            }
-            double usage = processor.getSystemCpuLoadBetweenTicks(previousTicks) * 100;
-            previousTicks = currentTicks;
-            return String.format("%.2f %%", usage);
-        } catch (Exception e) {
-            System.err.println("Error al obtener el uso de CPU: " + e.getMessage());
-            return "0.00 %"; // Valor por defecto
-        }
-    }
 
+    private static String getCpuUsage() {
+        // Obtener los ticks actuales del CPU
+        long[] currentTicks = processor.getSystemCpuLoadTicks();
+
+        // Si no hay ticks anteriores, inicializarlos y devolver 0%
+        if (previousTicks == null) {
+            previousTicks = currentTicks;
+            return "0.00 %";
+        }
+
+        // Calcular el uso del CPU basado en la diferencia de ticks
+        double usage = processor.getSystemCpuLoadBetweenTicks(previousTicks) * 100;
+
+        // Actualizar los ticks anteriores
+        previousTicks = currentTicks;
+
+        return String.format("%.2f %%", usage);
+    }
 
     private static String getMemoryFree() {
         double memoryFree = memory.getAvailable() / (1024.0 * 1024 * 1024);
@@ -472,7 +482,7 @@ public class TCPServer {
     }
     private static void addServerToList() {
         try {
-            ClientInfo serverInfo = getClientInfo();
+            serverInfo = getClientInfo();
             int score = ScoreCalculator.calculateScore(serverInfo);
             serverInfo.setScore(score);
 
@@ -514,6 +524,94 @@ public class TCPServer {
 
         return serverInfo;
     }
+
+    private static void startServerEvaluation() {
+        ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(1);
+
+        scheduler.scheduleAtFixedRate(() -> {
+            synchronized (clients) {
+                if (clients.isEmpty()) {
+                    System.out.println("No hay clientes conectados para evaluar.");
+                    return;
+                }
+
+                // Obtener el cliente con mayor puntaje
+                ClientInfo topClient = clients.stream()
+                        .sorted(Comparator.comparingInt(ClientInfo::getScore).reversed())
+                        .findFirst()
+                        .orElse(null);
+
+                if (topClient == null) {
+                    System.out.println("No se encontró un cliente con mayor puntaje.");
+                    return;
+                }
+
+                try {
+
+                    if(!serverInfo.getName().equals(topClient.getName())) { //validacion para omitir validacion si el unico en la lista es el servidor
+
+                        int serverScore = serverInfo.getScore();
+
+                        if (topClient.getScore() > serverScore && clients.size() != 1) {
+                            System.out.println("Cambio de servidor: " + topClient.getIp() + " será el nuevo servidor.");
+                            // El antiguo servidor se convierte en cliente
+                            System.out.println("El servidor actual se convertirá en cliente.");
+
+                            //Cerrar de manera correcta el servidor ya que la siguiente linea terminaba todo el fujo e impedia
+                            // que se ejecutara ahora como cliente
+
+                            //TCPServer.stopServer(); // Detener funciones de servidor
+                            SimpleClient.main(new String[]{}); // Reinicia como cliente
+                        }
+                    }else {
+                        System.out.println("El servidor actual sigue siendo el mejor (puntaje: " + serverInfo.getScore() + ").");
+                    }
+                } catch (Exception e) {
+                    System.err.println("Error durante la evaluación del servidor: " + e.getMessage());
+                }
+            }
+        }, 0, 18, TimeUnit.SECONDS); // Evaluación cada 12 segundos
+    }
+
+
+    public static void stopServer() {
+        try {
+            System.out.println("Deteniendo el servidor...");
+            System.exit(0); // Detiene el proceso del servidor
+        } catch (Exception e) {
+            System.err.println("Error al detener el servidor: " + e.getMessage());
+        }
+    }
+
+    private static void startServerDataUpdate() {
+        ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(1);
+
+        scheduler.scheduleAtFixedRate(() -> {
+            try {
+                synchronized (serverInfo) {
+                    // Actualizar datos dinámicos
+                    serverInfo.setCpuUsage(getCpuUsage());
+                    serverInfo.setMemoryFree(getMemoryFree());
+                    serverInfo.setDiskFree(getDiskFree());
+                    serverInfo.setBandwidthFree(getBandwidthFree());
+
+                    // Recalcular el puntaje del servidor
+                    int newScore = ScoreCalculator.calculateScore(serverInfo);
+                    serverInfo.setScore(newScore);
+
+                    // Actualizar la tabla
+                    updateTable();
+
+                    System.out.println("Datos del servidor actualizados: " + serverInfo);
+                }
+            } catch (Exception e) {
+                System.err.println("Error al actualizar los datos del servidor: " + e.getMessage());
+            }
+        }, 0, 6, TimeUnit.SECONDS); // Actualizar cada 6 segundos
+    }
+
+
+
 
 
 }
